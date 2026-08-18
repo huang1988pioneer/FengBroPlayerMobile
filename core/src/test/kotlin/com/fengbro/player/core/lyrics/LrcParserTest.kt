@@ -1,7 +1,11 @@
 package com.fengbro.player.core.lyrics
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Path
+import kotlin.io.path.writeText
 
 class LrcParserTest {
     @Test
@@ -33,5 +37,19 @@ class LrcParserTest {
         assertEquals("B", LrcParser.currentLine(lines, 10_000)?.text)
         assertEquals("B", LrcParser.currentLine(lines, 19_999)?.text)
         assertEquals("C", LrcParser.currentLine(lines, 25_000)?.text)
+    }
+
+    @Test
+    fun `finds same-stem lrc next to media`(@TempDir dir: Path) {
+        val song = dir.resolve("track.mp3")
+        val lrc = dir.resolve("track.lrc")
+        song.writeText("x")
+        lrc.writeText("[00:01.00]你好")
+        val found = LrcParser.findSidecar(song.toString())
+        assertEquals(lrc.toFile().absolutePath, found)
+        val lines = LrcParser.load(found!!)
+        assertEquals(1, lines.size)
+        assertEquals("你好", lines[0].text)
+        assertTrue(lines[0].timeMs >= 1000L)
     }
 }

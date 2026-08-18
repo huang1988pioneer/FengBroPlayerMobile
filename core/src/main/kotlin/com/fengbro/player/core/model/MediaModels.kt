@@ -49,6 +49,8 @@ data class MediaItem(
     var coverArt: ByteArray? = null,
     var persistableUri: String? = filePath,
     var displayName: String? = null,
+    var sidecarSubtitleUri: String? = null,
+    var sidecarLrcUri: String? = null,
 ) {
     val isLocalFile: Boolean get() = !filePath.isNullOrBlank()
     val isNetworkSource: Boolean get() = !sourceUrl.isNullOrBlank()

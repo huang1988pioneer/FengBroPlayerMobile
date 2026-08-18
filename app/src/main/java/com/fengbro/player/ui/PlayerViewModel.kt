@@ -17,6 +17,7 @@ import com.fengbro.player.core.lyrics.LrcParser
 import com.fengbro.player.core.media.MediaMetadata
 import com.fengbro.player.core.media.StreamUris
 import com.fengbro.player.core.model.ChromeMode
+import com.fengbro.player.core.model.LrcLine
 import com.fengbro.player.core.model.MediaItem
 import com.fengbro.player.core.model.MediaKind
 import com.fengbro.player.core.model.RecentPlayEntry
@@ -27,6 +28,7 @@ import com.fengbro.player.playback.LocalMetadataReader
 import com.fengbro.player.playback.PageStreamExtractor
 import com.fengbro.player.playback.PlaybackService
 import com.fengbro.player.playback.PlayerHolder
+import com.fengbro.player.playback.SidecarFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -68,6 +70,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var extractJob: Job? = null
     private var subtitleUri: String? = null
     private var subtitleOwner: String? = null
+    private var subtitleSuppressedFor: String? = null
     private var flashJob: Job? = null
     private var hudClearJob: Job? = null
     private var stackResetJob: Job? = null
@@ -147,7 +150,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (uris.isEmpty()) return
         viewModelScope.launch {
             val prepared = withContext(Dispatchers.IO) {
-                uris.mapNotNull { uri -> buildLocalItem(uri) }
+                val named = uris.map { uri ->
+                    uri to LocalMetadataReader.displayName(
+                        getApplication<Application>().contentResolver,
+                        uri,
+                    )
+                }
+                val subtitleByStem = SidecarFiles.pairSubtitles(named)
+                val lyricByStem = SidecarFiles.pairLyrics(named)
+                named.mapNotNull { (uri, name) ->
+                    if (MediaMetadata.isSubtitle(name) || MediaMetadata.isLyric(name)) {
+                        persistRead(uri)
+                        null
+                    } else {
+                        val stem = MediaMetadata.displayStem(name).lowercase()
+                        buildLocalItem(uri, name, subtitleByStem[stem], lyricByStem[stem])
+                    }
+                }
             }
             val result = playlist.importPrepared(prepared, selectFirst)
             publishLists(_ui.value.copy(statusMessage = result.statusMessage))
@@ -160,7 +179,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val files = withContext(Dispatchers.IO) {
                 val root = DocumentFile.fromTreeUri(getApplication(), treeUri)
-                collectMedia(root).mapNotNull { buildLocalItem(it.uri, it.name) }
+                val (media, extras) = collectFolderEntries(root)
+                val namedExtras = extras.map { it.uri to it.name.orEmpty() }
+                val subtitleByStem = SidecarFiles.pairSubtitles(namedExtras)
+                val lyricByStem = SidecarFiles.pairLyrics(namedExtras)
+                (subtitleByStem.values + lyricByStem.values).forEach(::persistRead)
+                media.mapNotNull { file ->
+                    val name = file.name.orEmpty()
+                    val stem = MediaMetadata.displayStem(name).lowercase()
+                    buildLocalItem(file.uri, name, subtitleByStem[stem], lyricByStem[stem])
+                }
             }
             if (files.isEmpty()) {
                 _ui.update { it.copy(statusMessage = "此資料夾及子資料夾沒有支援的媒體檔") }
@@ -368,7 +396,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         lyrics = emptyList(),
                         hasLyrics = false,
                         statusDetail = "",
-                        windowTitle = "風哥播放器",
+                        windowTitle = appName(),
                         statusMessage = "已清除播放清單",
                         playlistPositionText = "0 / 0",
                     )
@@ -636,8 +664,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _ui.update { it.copy(statusMessage = "字幕僅適用於影片播放模式") }
             return
         }
+        persistRead(uri)
         subtitleUri = uri.toString()
         subtitleOwner = _ui.value.current?.identityKey
+        subtitleSuppressedFor = null
+        _ui.value.current?.sidecarSubtitleUri = subtitleUri
         val name = LocalMetadataReader.displayName(getApplication<Application>().contentResolver, uri)
         _ui.update { it.copy(hasSubtitle = true, subtitleName = name, statusMessage = "已載入字幕：$name") }
         flash("已載入字幕")
@@ -647,6 +678,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun clearSubtitle() {
         subtitleUri = null
         subtitleOwner = null
+        subtitleSuppressedFor = _ui.value.current?.identityKey
         _ui.update { it.copy(hasSubtitle = false, subtitleName = "", statusMessage = "已關閉字幕") }
         flash("已關閉字幕")
         _ui.value.current?.let { if (it.kind == MediaKind.Video) selectMedia(it) }
@@ -658,7 +690,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (wasCurrent) {
             val next = playlist.firstPlayable()
             if (next != null) selectMedia(next) else stopMedia().also {
-                _ui.update { it.copy(current = null, activeKind = MediaKind.None, windowTitle = "風哥播放器") }
+                _ui.update { it.copy(current = null, activeKind = MediaKind.None, windowTitle = appName()) }
             }
         }
         publishLists(_ui.value.copy(statusMessage = "已自清單移除：${item.title}"))
@@ -748,20 +780,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun playLocal(item: MediaItem, generation: Int) {
-        if (item.kind == MediaKind.Video && subtitleOwner != item.identityKey) {
-            subtitleUri = null
-            _ui.update { it.copy(hasSubtitle = false, subtitleName = "") }
-        }
+        val resolvedSubtitle = resolveSubtitle(item)
         engine.playUri(
             uri = item.filePath!!,
-            subtitleUri = if (item.kind == MediaKind.Video) subtitleUri else null,
+            subtitleUri = resolvedSubtitle,
             title = item.title,
             artist = item.subtitle,
             artwork = item.coverArt,
             mediaId = item.id,
             isVideo = item.kind == MediaKind.Video,
         )
-        _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放：${item.title}") }
+        _ui.update {
+            it.copy(
+                isPlaying = true,
+                statusMessage = if (!resolvedSubtitle.isNullOrBlank()) {
+                    "正在播放：${item.title} · 同名字幕"
+                } else {
+                    "正在播放：${item.title}"
+                },
+            )
+        }
         if (generation != selectGeneration) return
     }
 
@@ -813,7 +851,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _ui.update { state ->
             val current = state.current
             val nextTitle = if (current?.sourceUrl.equals(sourceUrl, ignoreCase = true)) {
-                "$title — 風哥播放器"
+                "$title — ${appName()}"
             } else {
                 state.windowTitle
             }
@@ -830,15 +868,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun markCurrent(item: MediaItem) {
         playlist.snapshot.forEach { it.isCurrent = it.id == item.id }
-        val lyrics = if (item.isLocalFile && item.filePath != null && item.filePath!!.startsWith("/")) {
-            LrcParser.findSidecar(item.filePath!!)?.let { LrcParser.load(it) }.orEmpty()
-        } else {
-            emptyList()
-        }
+        val lyrics = loadLyrics(item)
         _ui.update {
             it.copy(
                 current = item,
-                windowTitle = "${item.title} — 風哥播放器",
+                windowTitle = "${item.title} — ${appName()}",
                 statusDetail = listOf(item.format, item.bitrate, if (item.kind == MediaKind.Video) "影片" else "音樂")
                     .filter { part -> part.isNotBlank() }
                     .joinToString(" · "),
@@ -952,6 +986,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         return w.toInt().coerceAtLeast(1) to h.toInt().coerceAtLeast(1)
     }
 
+    private fun appName(): String = getApplication<Application>().getString(com.fengbro.player.R.string.app_name)
+
     private fun startPlaybackService() {
         val context = getApplication<Application>()
         val intent = Intent(context, PlaybackService::class.java)
@@ -964,11 +1000,92 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun buildLocalItem(uri: Uri, nameHint: String? = null): MediaItem? {
+    private fun resolveSubtitle(item: MediaItem): String? {
+        if (item.kind != MediaKind.Video) return null
+        if (subtitleSuppressedFor == item.identityKey) {
+            subtitleUri = null
+            subtitleOwner = null
+            _ui.update { it.copy(hasSubtitle = false, subtitleName = "") }
+            return null
+        }
+        if (subtitleOwner == item.identityKey && !subtitleUri.isNullOrBlank()) {
+            return subtitleUri
+        }
+        val found = item.sidecarSubtitleUri
+            ?: item.filePath?.let { path ->
+                val uri = Uri.parse(path)
+                SidecarFiles.findSubtitle(
+                    getApplication(),
+                    uri,
+                    item.displayName,
+                )?.also(::persistRead)?.toString()
+            }
+        if (found.isNullOrBlank()) {
+            subtitleUri = null
+            subtitleOwner = null
+            _ui.update { it.copy(hasSubtitle = false, subtitleName = "") }
+            return null
+        }
+        item.sidecarSubtitleUri = found
+        subtitleUri = found
+        subtitleOwner = item.identityKey
+        val label = LocalMetadataReader.displayName(
+            getApplication<Application>().contentResolver,
+            Uri.parse(found),
+        )
+        _ui.update {
+            it.copy(
+                hasSubtitle = true,
+                subtitleName = label,
+                statusMessage = "已載入同名字幕：$label",
+            )
+        }
+        flash("已載入同名字幕")
+        return found
+    }
+
+    private fun loadLyrics(item: MediaItem): List<LrcLine> {
+        val found = item.sidecarLrcUri
+            ?: item.filePath?.let { path ->
+                SidecarFiles.findLyric(
+                    getApplication(),
+                    Uri.parse(path),
+                    item.displayName,
+                )?.also(::persistRead)?.toString()
+            }
+        if (found.isNullOrBlank()) return emptyList()
+        item.sidecarLrcUri = found
+        val lines = readLrc(Uri.parse(found))
+        if (lines.isNotEmpty()) {
+            flash("已載入同名歌詞")
+        }
+        return lines
+    }
+
+    private fun readLrc(uri: Uri): List<LrcLine> {
+        val bytes = runCatching {
+            when (uri.scheme) {
+                "file" -> uri.path?.let { File(it).takeIf { file -> file.isFile }?.readBytes() }
+                else -> getApplication<Application>().contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            }
+        }.getOrNull()
+        return if (bytes == null || bytes.isEmpty()) emptyList() else LrcParser.parseBytes(bytes)
+    }
+
+    private fun buildLocalItem(
+        uri: Uri,
+        nameHint: String? = null,
+        pairedSubtitle: Uri? = null,
+        pairedLyric: Uri? = null,
+    ): MediaItem? {
         val resolver = getApplication<Application>().contentResolver
         val name = nameHint ?: LocalMetadataReader.displayName(resolver, uri)
         val path = uri.toString()
         persistRead(uri)
+        val sidecar = pairedSubtitle?.also(::persistRead)?.toString()
+            ?: SidecarFiles.findSubtitle(getApplication(), uri, name)?.also(::persistRead)?.toString()
+        val lyric = pairedLyric?.also(::persistRead)?.toString()
+            ?: SidecarFiles.findLyric(getApplication(), uri, name)?.also(::persistRead)?.toString()
         return when {
             MediaMetadata.isVideo(name) || resolver.getType(uri)?.startsWith("video/") == true -> {
                 val info = LocalMetadataReader.readVideo(getApplication(), uri, name)
@@ -986,6 +1103,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     videoCodec = info.videoCodec,
                     persistableUri = path,
                     displayName = name,
+                    sidecarSubtitleUri = sidecar,
+                    sidecarLrcUri = lyric,
                 )
             }
             MediaMetadata.isAudio(name) || resolver.getType(uri)?.startsWith("audio/") == true -> {
@@ -1003,6 +1122,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     coverArt = info.coverArt,
                     persistableUri = path,
                     displayName = name,
+                    sidecarLrcUri = lyric,
                 )
             }
             else -> MediaItem(
@@ -1016,6 +1136,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 format = MediaMetadata.extensionLabel(name),
                 persistableUri = path,
                 displayName = name,
+                sidecarLrcUri = lyric,
             )
         }
     }
@@ -1029,18 +1150,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun collectMedia(root: DocumentFile?): List<DocumentFile> {
-        if (root == null) return emptyList()
-        val out = mutableListOf<DocumentFile>()
+    private fun collectFolderEntries(root: DocumentFile?): Pair<List<DocumentFile>, List<DocumentFile>> {
+        if (root == null) return emptyList<DocumentFile>() to emptyList()
+        val media = mutableListOf<DocumentFile>()
+        val extras = mutableListOf<DocumentFile>()
         fun walk(dir: DocumentFile) {
             dir.listFiles().forEach { child ->
+                val name = child.name.orEmpty()
                 when {
                     child.isDirectory -> walk(child)
-                    child.isFile && MediaMetadata.isSupportedMedia(child.name.orEmpty()) -> out += child
+                    child.isFile && MediaMetadata.isSupportedMedia(name) -> media += child
+                    child.isFile && (MediaMetadata.isSubtitle(name) || MediaMetadata.isLyric(name)) -> extras += child
                 }
             }
         }
-        if (root.isDirectory) walk(root) else if (root.isFile) out += root
-        return out.sortedBy { it.name.orEmpty().lowercase() }
+        if (root.isDirectory) walk(root) else if (root.isFile) {
+            val name = root.name.orEmpty()
+            if (MediaMetadata.isSupportedMedia(name)) media += root
+            if (MediaMetadata.isSubtitle(name) || MediaMetadata.isLyric(name)) extras += root
+        }
+        return media.sortedBy { it.name.orEmpty().lowercase() } to extras
     }
 }

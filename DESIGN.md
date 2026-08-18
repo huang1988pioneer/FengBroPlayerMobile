@@ -1,5 +1,5 @@
 ---
-name: FengBro Player
+name: 鋒兄播放器
 description: Android 滿版播放器，Pro Dark + 手機播放器手勢
 colors:
   accent: "#3B9EFF"
@@ -43,7 +43,7 @@ components:
     height: "3dp"
 ---
 
-# Design System: FengBro Player
+# Design System: 鋒兄播放器
 
 ## Overview
 

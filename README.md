@@ -1,4 +1,4 @@
-# 風哥播放器（FengBro Player）
+# 鋒兄播放器（FengBro Player）
 
 Android 版多媒體播放器，移植自 [MusicVideoMediaPlayer](https://github.com/huang1988pioneer/MusicVideoMediaPlayer) 的 **Stage-centric Pro Player** 架構（參考 KMPlayer / PotPlayer IA）。
 
@@ -21,7 +21,9 @@ Android 版多媒體播放器，移植自 [MusicVideoMediaPlayer](https://github
 | 方式 | 說明 |
 |------|------|
 | 選單 / 控制列「開啟檔案」 | 音樂 + 影片（SAF，權限可持久化） |
-| 開啟資料夾 | 遞迴掃描音訊／影片 |
+| 開啟資料夾 | 遞迴掃描音訊／影片，並配對同名字幕 |
+| 同名字幕 | 開影片時自動載入同名 `.srt`（同資料夾；也可一次選影片+字幕） |
+| 同名歌詞 | 開音樂／影片時自動載入同名 `.lrc` |
 | 開啟網路串流 | http(s) 直連、HLS / DASH；YouTube / Bilibili 等網頁以 NewPipe Extractor 解析 |
 | 系統分享 / 開啟方式 | 可從其他 App 丟入檔案或 URL |
 

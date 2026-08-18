@@ -57,7 +57,7 @@ data class PlayerUiState(
     val statusMessage: String = "就緒 — 可開啟本機音樂或影片檔案",
     val statusDetail: String = "",
     val flashMessage: String = "",
-    val windowTitle: String = "風哥播放器",
+    val windowTitle: String = "鋒兄播放器",
     val activeKind: MediaKind = MediaKind.None,
     val coverBytes: ByteArray? = null,
     val waveform: List<Float> = seedWaveform(),

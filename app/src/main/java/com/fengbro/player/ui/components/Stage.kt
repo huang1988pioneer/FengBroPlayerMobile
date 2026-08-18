@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -174,7 +175,12 @@ private fun Landing(
             .navigationBarsPadding()
             .padding(horizontal = 24.dp, vertical = 28.dp),
     ) {
-        Text("風哥播放器", color = TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = stringResource(R.string.app_name),
+            color = TextPrimary,
+            fontSize = 28.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
         Text(
             "點一下檔案就能播。手勢和 YouTube、MX、VLC 一樣。",
             color = TextSecondary,

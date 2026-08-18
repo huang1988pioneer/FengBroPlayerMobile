@@ -106,6 +106,19 @@ fun PlayerOverlay(
             Box(Modifier.fillMaxSize()) {
                 TopChrome(state, onToggleLock, onOpenSettings, Modifier.align(Alignment.TopCenter))
                 CenterPlay(state.isPlaying, onTogglePlay, Modifier.align(Alignment.Center))
+                if (state.hasLyrics && clock.currentLyric.isNotBlank()) {
+                    Text(
+                        text = clock.currentLyric,
+                        color = Accent,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(start = 20.dp, end = 20.dp, bottom = 108.dp),
+                    )
+                }
                 BottomChrome(
                     state = state,
                     clock = clock,

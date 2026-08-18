@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">風哥播放器</string>
+    <string name="app_name">鋒兄播放器</string>
     <string name="ready_status">就緒 — 可開啟本機音樂或影片檔案</string>
     <string name="open_file">開啟檔案</string>
     <string name="open_folder">開啟資料夾</string>

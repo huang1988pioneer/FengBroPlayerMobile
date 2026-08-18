@@ -14,7 +14,12 @@ object LrcParser {
         if (path.isBlank()) return emptyList()
         val file = File(path)
         if (!file.isFile) return emptyList()
-        return parse(file.readText(detectEncoding(file)))
+        return parseBytes(file.readBytes())
+    }
+
+    fun parseBytes(bytes: ByteArray): List<LrcLine> {
+        if (bytes.isEmpty()) return emptyList()
+        return parse(String(bytes, detectEncoding(bytes)))
     }
 
     fun parse(text: String): List<LrcLine> {
@@ -65,15 +70,10 @@ object LrcParser {
         return if (current >= 0) lines[current] else null
     }
 
-    private fun detectEncoding(file: File): Charset {
-        val bom = file.inputStream().use { stream ->
-            val buf = ByteArray(3)
-            val read = stream.read(buf)
-            buf.copyOf(read.coerceAtLeast(0))
-        }
+    private fun detectEncoding(bytes: ByteArray): Charset {
         return when {
-            bom.size >= 2 && bom[0] == 0xFF.toByte() && bom[1] == 0xFE.toByte() -> Charsets.UTF_16LE
-            bom.size >= 2 && bom[0] == 0xFE.toByte() && bom[1] == 0xFF.toByte() -> Charsets.UTF_16BE
+            bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte() -> Charsets.UTF_16LE
+            bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte() -> Charsets.UTF_16BE
             else -> Charsets.UTF_8
         }
     }

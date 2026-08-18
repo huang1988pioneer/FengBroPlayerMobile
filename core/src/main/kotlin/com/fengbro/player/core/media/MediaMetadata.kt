@@ -13,6 +13,7 @@ object MediaMetadata {
         ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".webm", ".m4v", ".ts", ".flv", ".3gp",
     )
     val subtitleExtensions = listOf(".srt", ".ass", ".ssa", ".vtt", ".sub")
+    val lyricExtensions = listOf(".lrc")
 
     val coverFileNames = listOf(
         "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
@@ -30,6 +31,15 @@ object MediaMetadata {
     fun isSubtitle(path: String): Boolean =
         subtitleExtensions.any { path.endsWith(it, ignoreCase = true) }
 
+    fun isLyric(path: String): Boolean =
+        lyricExtensions.any { path.endsWith(it, ignoreCase = true) }
+
+    fun lyricNames(stem: String): List<String> {
+        val clean = stem.trim()
+        if (clean.isBlank()) return emptyList()
+        return lyricExtensions.map { clean + it }
+    }
+
     fun isSupportedMedia(path: String): Boolean = isAudio(path) || isVideo(path)
 
     fun looksLikeStreamPlaylist(path: String): Boolean =
@@ -37,14 +47,20 @@ object MediaMetadata {
             path.endsWith(".m3u", ignoreCase = true) ||
             path.endsWith(".mpd", ignoreCase = true)
 
+    fun sidecarNames(stem: String): List<String> {
+        val clean = stem.trim()
+        if (clean.isBlank()) return emptyList()
+        return subtitleExtensions.map { clean + it }
+    }
+
     fun findSidecarSubtitle(videoPath: String): String? {
         if (videoPath.isBlank()) return null
         val file = File(videoPath)
         val dir = file.parentFile ?: return null
         val stem = file.nameWithoutExtension
         if (stem.isBlank()) return null
-        return subtitleExtensions
-            .map { File(dir, stem + it) }
+        return sidecarNames(stem)
+            .map { File(dir, it) }
             .firstOrNull { it.isFile }
             ?.absolutePath
     }

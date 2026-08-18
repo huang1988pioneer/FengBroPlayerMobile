@@ -12,7 +12,7 @@ android
 
 ## Product Purpose
 
-風哥播放器是 Android 本機＋串流播放器。成功標準是：打開檔案或網址後，用和其他主流手機播放器一樣的手勢就能播、暫停、快轉、調音量與亮度，不必先學一套桌面快捷鍵。
+鋒兄播放器是 Android 本機＋串流播放器。成功標準是：打開檔案或網址後，用和其他主流手機播放器一樣的手勢就能播、暫停、快轉、調音量與亮度，不必先學一套桌面快捷鍵。
 
 ## Positioning
 
@@ -29,12 +29,12 @@ android
 
 - 本機音訊／影片（SAF）、資料夾掃描、http(s)／HLS／DASH、YouTube／Bilibili 網頁解析。
 - Media3 ExoPlayer、前景 MediaSession 媒體通知／鎖定畫面、影片子母畫面、zh-TW 文案。
-- 強調色鎖定 `#3B9EFF`；名稱「風哥播放器」。
+- 強調色鎖定 `#3B9EFF`；名稱「鋒兄播放器」。
 - **假設（使用者點名參考、確認回合未回傳細部）：** 操作模型對齊 YouTube、Bilibili、MX Player、KMPlayer、Bubble Player、nPlayer、VLC for Android 的共同習慣：畫面滿版、點一下顯示／隱藏控制、雙擊左右快轉、左右滑進度、左側亮度右側音量、長按二倍速、清單由底部滑出。
 
 ## Brand Commitments
 
-- 中文名稱：風哥播放器。
+- 中文名稱：鋒兄播放器。
 - 參考產品（操作慣例，不抄品牌）：YouTube、Bilibili、MX Player、KMPlayer、Bubble Player、nPlayer、VLC for Android。
 - 不複製上述產品的 logo 或專有皮膚。
 

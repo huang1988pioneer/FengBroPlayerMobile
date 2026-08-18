@@ -89,6 +89,12 @@ class PlayerHolder(context: Context) {
             )
         }
         exoPlayer.setMediaItem(builder.build())
+        if (!subtitleUri.isNullOrBlank()) {
+            exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                .buildUpon()
+                .setSelectUndeterminedTextLanguage(true)
+                .build()
+        }
         exoPlayer.prepare()
         exoPlayer.play()
     }
@@ -187,9 +193,9 @@ class PlayerHolder(context: Context) {
         isVideo: Boolean,
     ): MediaMetadata {
         val builder = MediaMetadata.Builder()
-            .setTitle(title?.ifBlank { null } ?: "風哥播放器")
+            .setTitle(title?.ifBlank { null } ?: appContext.getString(com.fengbro.player.R.string.app_name))
             .setArtist(artist?.ifBlank { null })
-            .setAlbumTitle("風哥播放器")
+            .setAlbumTitle(appContext.getString(com.fengbro.player.R.string.app_name))
             .setIsPlayable(true)
             .setMediaType(
                 if (isVideo) MediaMetadata.MEDIA_TYPE_VIDEO else MediaMetadata.MEDIA_TYPE_MUSIC,
