@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">風哥播放器</string>
+    <string name="ready_status">就緒 — 可開啟本機音樂或影片檔案</string>
+    <string name="open_file">開啟檔案</string>
+    <string name="open_folder">開啟資料夾</string>
+    <string name="open_stream">開啟網路串流</string>
+    <string name="playlist">播放清單</string>
+    <string name="recent">最近</string>
+    <string name="streams">串流</string>
+    <string name="play_pause">播放/暫停</string>
+    <string name="stop">停止</string>
+    <string name="previous">上一首</string>
+    <string name="next">下一首</string>
+    <string name="mute">靜音</string>
+    <string name="fullscreen">全螢幕</string>
+    <string name="autoplay">自動播放</string>
+    <string name="clear">清除</string>
+    <string name="cancel">取消</string>
+    <string name="play">播放</string>
+    <string name="network_hint">輸入 http(s) 或 YouTube / Bilibili 網址</string>
+    <string name="empty_stage">開啟檔案、資料夾，或貼上網路串流網址</string>
+    <string name="no_cover">無封面</string>
+    <string name="notification_channel">播放中</string>
+</resources>
