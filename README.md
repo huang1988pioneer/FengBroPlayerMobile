@@ -1,4 +1,4 @@
-# 鋒兄播放器（FengBro Player）
+# 鋒兄播放器（FengBroPlayerMobile）
 
 Android 版多媒體播放器，移植自 [MusicVideoMediaPlayer](https://github.com/huang1988pioneer/MusicVideoMediaPlayer) 的 **Stage-centric Pro Player** 架構（參考 KMPlayer / PotPlayer IA）。
 
@@ -55,7 +55,7 @@ Android 版多媒體播放器，移植自 [MusicVideoMediaPlayer](https://github
 ## 專案結構
 
 ```
-FengBroPlayer/
+FengBroPlayerMobile/
 ├── core/     # 純 JVM：模型、播放清單語意、LRC、最近播放、串流 URI
 ├── app/      # Android：Compose UI、Media3、SAF、NewPipe 解析
 └── docs 對應來源：MusicVideoMediaPlayer 的 stage-centric 設計
@@ -84,7 +84,7 @@ FengBroPlayer/
 
 ## 下載
 
-正式 APK 見 [Releases](https://github.com/huang1988pioneer/FengBroPlayer/releases)。打 `v*` 標籤會由 GitHub Actions 自動建置並上傳。
+正式 APK 見 [Releases](https://github.com/huang1988pioneer/FengBroPlayerMobile/releases)。打 `v*` 標籤會由 GitHub Actions 自動建置並上傳。
 
 ## 建置
 

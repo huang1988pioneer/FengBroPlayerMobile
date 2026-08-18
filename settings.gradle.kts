@@ -15,6 +15,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FengBroPlayer"
+rootProject.name = "FengBroPlayerMobile"
 include(":core")
 include(":app")
