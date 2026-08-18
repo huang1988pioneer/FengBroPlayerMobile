@@ -73,6 +73,10 @@ FengBroPlayer/
 
 部分容器（舊 AVI / 特殊 MKV）受 Android 解碼器限制，與桌面 LibVLC 的格式覆蓋範圍不完全相同。
 
+## 下載
+
+正式 APK 見 [Releases](https://github.com/huang1988pioneer/FengBroPlayer/releases)。打 `v*` 標籤會由 GitHub Actions 自動建置並上傳。
+
 ## 建置
 
 需求：
@@ -84,10 +88,10 @@ FengBroPlayer/
 ```bash
 # Windows
 .\gradlew.bat :core:test
-.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:assembleRelease
 ```
 
-產出 APK：`app/build/outputs/apk/debug/app-debug.apk`
+產出 APK：`app/build/outputs/apk/release/app-release.apk`
 
 第一次建置會下載 Gradle 與 Android 依賴，需網路。
 

@@ -32,3 +32,6 @@ _src_MusicVideoMediaPlayer/
 keystore.properties
 *.jks
 *.keystore
+
+# Local release staging
+dist/
