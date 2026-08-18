@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,7 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fengbro.player.FengBroApp
@@ -44,8 +44,12 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
     val state by viewModel.ui.collectAsStateWithLifecycle()
     val clock by viewModel.clock.collectAsStateWithLifecycle()
     val playerHolder = FengBroApp.instance.playerHolder
-    val configuration = LocalConfiguration.current
-    val wide = configuration.screenWidthDp >= 700
+    val spec = rememberPlayerWindowSpec()
+    val sidePlaylist = spec.useSidePlaylist && state.isPlaylistVisible && !state.isInPictureInPicture
+    val sheetPlaylist = !spec.useSidePlaylist && state.isPlaylistVisible && !state.isInPictureInPicture
+    val afterPick: () -> Unit = {
+        if (!spec.keepPlaylistOpenOnSelect) viewModel.closePlaylist()
+    }
 
     val openMedia = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments(),
@@ -94,12 +98,14 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
             onOpenStream = { viewModel.openNetworkDialog(true) },
             onPlayRecent = viewModel::playRecent,
             gesturesEnabled = !state.isInPictureInPicture && !state.isControlsLocked,
+            contentEndInsetDp = if (sidePlaylist) spec.sidePaneWidthDp else 0,
             modifier = Modifier.fillMaxSize(),
         )
 
         if (!state.isInPictureInPicture) PlayerOverlay(
             state = state,
             clock = clock,
+            spec = spec,
             onTogglePlay = viewModel::togglePlay,
             onPrev = viewModel::playPrevious,
             onNext = viewModel::playNext,
@@ -117,36 +123,40 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
             onEnterPip = viewModel::enterPictureInPicture,
             onToggleLock = viewModel::toggleLock,
             onOpenSettings = viewModel::openSettings,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(end = if (sidePlaylist) spec.sidePaneWidthDp.dp else 0.dp),
         )
 
-        if (wide && state.isPlaylistVisible && !state.isInPictureInPicture) {
+        if (sidePlaylist) {
             PlaylistDock(
                 state = state,
                 onShowPane = viewModel::showDock,
                 onSelect = {
                     viewModel.selectMedia(it)
-                    viewModel.closePlaylist()
+                    afterPick()
                 },
                 onPlayRecent = {
                     viewModel.playRecent(it)
-                    viewModel.closePlaylist()
+                    afterPick()
                 },
                 onRemoveRecent = viewModel::removeRecent,
                 onRemoveStream = viewModel::removeStream,
                 onClear = viewModel::clearDock,
                 onAutoPlay = viewModel::setAutoPlay,
+                sidePane = true,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .width(320.dp)
+                    .width(spec.sidePaneWidthDp.dp)
                     .fillMaxHeight(),
             )
         }
     }
 
-    if (!wide && state.isPlaylistVisible && !state.isInPictureInPicture) {
+    if (sheetPlaylist) {
         ModalBottomSheet(
             onDismissRequest = viewModel::closePlaylist,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = !spec.isCompactHeight),
             containerColor = BgPanel,
         ) {
             PlaylistDock(
@@ -154,19 +164,20 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
                 onShowPane = viewModel::showDock,
                 onSelect = {
                     viewModel.selectMedia(it)
-                    viewModel.closePlaylist()
+                    afterPick()
                 },
                 onPlayRecent = {
                     viewModel.playRecent(it)
-                    viewModel.closePlaylist()
+                    afterPick()
                 },
                 onRemoveRecent = viewModel::removeRecent,
                 onRemoveStream = viewModel::removeStream,
                 onClear = viewModel::clearDock,
                 onAutoPlay = viewModel::setAutoPlay,
+                sidePane = false,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 320.dp, max = 520.dp),
+                    .heightIn(min = 200.dp, max = spec.sheetMaxHeightDp.dp),
             )
         }
     }

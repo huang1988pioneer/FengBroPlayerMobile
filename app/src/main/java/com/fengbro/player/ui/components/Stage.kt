@@ -18,13 +18,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,10 +65,12 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.fengbro.player.core.gesture.TapZone
+import com.fengbro.player.core.layout.PlayerWindowSpec
 import com.fengbro.player.core.model.RecentPlayEntry
 import com.fengbro.player.playback.PlayerHolder
 import com.fengbro.player.ui.PlaybackClock
 import com.fengbro.player.ui.PlayerUiState
+import com.fengbro.player.ui.rememberPlayerWindowSpec
 import com.fengbro.player.ui.theme.Accent
 import com.fengbro.player.ui.theme.AccentGlow
 import com.fengbro.player.ui.theme.AccentSoft
@@ -93,8 +99,10 @@ fun PlayerStage(
     onOpenStream: () -> Unit,
     onPlayRecent: (RecentPlayEntry) -> Unit,
     gesturesEnabled: Boolean = true,
+    contentEndInsetDp: Int = 0,
     modifier: Modifier = Modifier,
 ) {
+    val spec = rememberPlayerWindowSpec()
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -104,6 +112,7 @@ fun PlayerStage(
             state.current == null -> {
                 Landing(
                     recents = state.recent,
+                    spec = spec,
                     onOpenFile = onOpenFile,
                     onOpenFolder = onOpenFolder,
                     onOpenStream = onOpenStream,
@@ -132,7 +141,12 @@ fun PlayerStage(
                 )
             }
             else -> {
-                AudioStage(state = state, clock = clock)
+                AudioStage(
+                    state = state,
+                    clock = clock,
+                    spec = spec,
+                    modifier = Modifier.padding(end = contentEndInsetDp.dp),
+                )
             }
         }
 
@@ -163,29 +177,96 @@ fun PlayerStage(
 @Composable
 private fun Landing(
     recents: List<RecentPlayEntry>,
+    spec: PlayerWindowSpec,
     onOpenFile: () -> Unit,
     onOpenFolder: () -> Unit,
     onOpenStream: () -> Unit,
     onPlayRecent: (RecentPlayEntry) -> Unit,
 ) {
-    Column(
+    val gutter = if (spec.isCompactWidth) 24.dp else 28.dp
+    val vertical = if (spec.isCompactHeight) 16.dp else 28.dp
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 28.dp),
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = gutter, vertical = vertical),
+        contentAlignment = Alignment.TopCenter,
+    ) {
+        if (spec.landingTwoPane && recents.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                LandingActions(
+                    spec = spec,
+                    onOpenFile = onOpenFile,
+                    onOpenFolder = onOpenFolder,
+                    onOpenStream = onOpenStream,
+                    modifier = Modifier
+                        .weight(0.92f)
+                        .fillMaxHeight()
+                        .widthIn(max = 440.dp),
+                    compact = spec.isCompactHeight,
+                )
+                LandingRecents(
+                    recents = recents,
+                    onPlayRecent = onPlayRecent,
+                    modifier = Modifier.weight(1.08f).fillMaxHeight(),
+                    showHeading = !spec.isCompactHeight,
+                )
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = spec.landingMaxWidthDp.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+            ) {
+                LandingActions(
+                    spec = spec,
+                    onOpenFile = onOpenFile,
+                    onOpenFolder = onOpenFolder,
+                    onOpenStream = onOpenStream,
+                    modifier = Modifier.fillMaxWidth(),
+                    compact = spec.isCompactHeight,
+                )
+                if (recents.isNotEmpty()) {
+                    LandingRecents(
+                        recents = recents,
+                        onPlayRecent = onPlayRecent,
+                        modifier = Modifier.fillMaxSize().padding(top = if (spec.isCompactHeight) 16.dp else 28.dp),
+                        showHeading = true,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LandingActions(
+    spec: PlayerWindowSpec,
+    onOpenFile: () -> Unit,
+    onOpenFolder: () -> Unit,
+    onOpenStream: () -> Unit,
+    modifier: Modifier = Modifier,
+    compact: Boolean,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = if (compact) Arrangement.Center else Arrangement.Top,
     ) {
         Text(
             text = stringResource(R.string.app_name),
             color = TextPrimary,
-            fontSize = 28.sp,
+            fontSize = if (spec.isCompactWidth) 28.sp else 32.sp,
             fontWeight = FontWeight.SemiBold,
         )
         Text(
             "點一下檔案就能播。手勢和 YouTube、MX、VLC 一樣。",
             color = TextSecondary,
             fontSize = 14.sp,
-            modifier = Modifier.padding(top = 8.dp, bottom = 28.dp),
+            modifier = Modifier.padding(top = 8.dp, bottom = if (compact) 16.dp else 28.dp),
         )
         Button(
             onClick = onOpenFile,
@@ -222,41 +303,51 @@ private fun Landing(
                 Text("網路串流")
             }
         }
+    }
+}
 
-        if (recents.isNotEmpty()) {
+@Composable
+private fun LandingRecents(
+    recents: List<RecentPlayEntry>,
+    onPlayRecent: (RecentPlayEntry) -> Unit,
+    modifier: Modifier = Modifier,
+    showHeading: Boolean,
+) {
+    Column(modifier = modifier) {
+        if (showHeading) {
             Text(
                 "最近播放",
                 color = TextSecondary,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(top = 28.dp, bottom = 8.dp),
+                modifier = Modifier.padding(bottom = 8.dp),
             )
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(recents.take(12), key = { it.key }) { entry ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(BgCard)
-                            .clickable { onPlayRecent(entry) }
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(entry.title, color = TextPrimary, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                listOf(entry.kindLabel, entry.playedAtText, entry.duration)
-                                    .filter { it.isNotBlank() }
-                                    .joinToString(" · "),
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+        }
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            items(recents.take(12), key = { it.key }) { entry ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(BgCard)
+                        .clickable { onPlayRecent(entry) }
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(entry.title, color = TextPrimary, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            listOf(entry.kindLabel, entry.playedAtText, entry.duration)
+                                .filter { it.isNotBlank() }
+                                .joinToString(" · "),
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
@@ -268,6 +359,8 @@ private fun Landing(
 private fun AudioStage(
     state: PlayerUiState,
     clock: PlaybackClock,
+    spec: PlayerWindowSpec,
+    modifier: Modifier = Modifier,
 ) {
     val pulse = rememberInfiniteTransition(label = "wave")
     val phase = pulse.animateFloat(
@@ -280,28 +373,39 @@ private fun AudioStage(
         label = "phase",
     )
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(horizontal = if (spec.isCompactWidth) 24.dp else 40.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        CoverArt(state)
+        CoverArt(state, spec.coverSizeDp)
         if (state.hasLyrics && clock.currentLyric.isNotBlank()) {
             Text(
                 text = clock.currentLyric,
                 color = Accent,
-                fontSize = 18.sp,
+                fontSize = if (spec.isCompactHeight) 16.sp else 18.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 20.dp).fillMaxWidth(0.9f),
+                modifier = Modifier
+                    .padding(top = if (spec.isCompactHeight) 12.dp else 20.dp)
+                    .widthIn(max = 640.dp)
+                    .fillMaxWidth(0.9f),
             )
         }
-        Waveform(state.waveform, state.isPlaying, phase.value)
+        Waveform(
+            bars = state.waveform,
+            playing = state.isPlaying,
+            phase = phase.value,
+            compact = spec.isCompactHeight,
+        )
     }
 }
 
 @Composable
-private fun CoverArt(state: PlayerUiState) {
+private fun CoverArt(state: PlayerUiState, sizeDp: Int) {
     val bytes = state.coverBytes
     val bitmap = remember(bytes) {
         if (bytes != null && bytes.size > 64) {
@@ -313,7 +417,7 @@ private fun CoverArt(state: PlayerUiState) {
     val hue = (state.current?.coverHue ?: 200).toFloat()
     Box(
         modifier = Modifier
-            .size(220.dp)
+            .size(sizeDp.dp)
             .shadow(16.dp, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .background(Color.hsv(hue, 0.42f, 0.38f)),
@@ -328,13 +432,14 @@ private fun CoverArt(state: PlayerUiState) {
 }
 
 @Composable
-private fun Waveform(bars: List<Float>, playing: Boolean, phase: Float) {
+private fun Waveform(bars: List<Float>, playing: Boolean, phase: Float, compact: Boolean) {
     val scale = if (playing) phase else 0.55f
     Canvas(
         modifier = Modifier
-            .padding(top = 20.dp)
-            .fillMaxWidth(0.7f)
-            .height(36.dp),
+            .padding(top = if (compact) 12.dp else 20.dp)
+            .fillMaxWidth(if (compact) 0.55f else 0.7f)
+            .widthIn(max = 520.dp)
+            .height(if (compact) 28.dp else 36.dp),
     ) {
         if (bars.isEmpty()) return@Canvas
         val gap = 2.dp.toPx()

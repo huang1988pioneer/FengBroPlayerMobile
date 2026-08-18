@@ -9,7 +9,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -51,23 +54,44 @@ fun PlaylistDock(
     onRemoveStream: (RecentPlayEntry) -> Unit,
     onClear: () -> Unit,
     onAutoPlay: (Boolean) -> Unit,
+    sidePane: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .background(BgPanel)
-            .border(width = 1.dp, color = BorderSubtle),
-    ) {
+    val chrome = modifier
+        .background(BgPanel)
+        .then(
+            if (sidePane) {
+                Modifier.border(width = 1.dp, color = BorderSubtle)
+            } else {
+                Modifier
+            },
+        )
+        .then(
+            if (sidePane) {
+                Modifier.statusBarsPadding().navigationBarsPadding()
+            } else {
+                Modifier
+            },
+        )
+    Column(modifier = chrome) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            DockTab("清單", state.dockPane == SideDockPane.Playlist) { onShowPane(SideDockPane.Playlist) }
-            DockTab("最近", state.dockPane == SideDockPane.Recent) { onShowPane(SideDockPane.Recent) }
-            DockTab("串流", state.dockPane == SideDockPane.Streams) { onShowPane(SideDockPane.Streams) }
+            DockTab("清單", state.dockPane == SideDockPane.Playlist, Modifier.weight(1f)) {
+                onShowPane(SideDockPane.Playlist)
+            }
+            DockTab("最近", state.dockPane == SideDockPane.Recent, Modifier.weight(1f)) {
+                onShowPane(SideDockPane.Recent)
+            }
+            DockTab("串流", state.dockPane == SideDockPane.Streams, Modifier.weight(1f)) {
+                onShowPane(SideDockPane.Streams)
+            }
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             when (state.dockPane) {
@@ -87,11 +111,12 @@ fun PlaylistDock(
             Text(
                 "清除",
                 color = TextPrimary,
-                fontSize = 12.sp,
+                fontSize = 13.sp,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .clickable(onClick = onClear)
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .heightIn(min = 48.dp)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
             )
         }
 
@@ -134,17 +159,26 @@ fun PlaylistDock(
 }
 
 @Composable
-private fun DockTab(label: String, active: Boolean, onClick: () -> Unit) {
-    Text(
-        text = label,
-        color = if (active) Accent else TextMuted,
-        fontSize = 13.sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+private fun DockTab(
+    label: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(8.dp))
             .background(if (active) BgSelected else BgHover.copy(alpha = 0.4f))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-    )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (active) Accent else TextMuted,
+            fontSize = 13.sp,
+        )
+    }
 }
 
 @Composable
@@ -156,7 +190,7 @@ private fun PlaylistRow(item: MediaItem, onClick: () -> Unit) {
             .clip(RoundedCornerShape(4.dp))
             .background(if (item.isCurrent) BgSelected else ColorTransparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(

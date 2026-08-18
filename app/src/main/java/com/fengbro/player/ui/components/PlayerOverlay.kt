@@ -18,10 +18,13 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -70,6 +73,7 @@ import com.fengbro.player.core.gesture.PlayerGestureMath
 import com.fengbro.player.core.gesture.TapZone
 import com.fengbro.player.core.media.MediaMetadata
 import com.fengbro.player.core.model.ChromeMode
+import com.fengbro.player.core.layout.PlayerWindowSpec
 import com.fengbro.player.ui.GestureHud
 import com.fengbro.player.ui.PlaybackClock
 import com.fengbro.player.ui.PlayerUiState
@@ -81,6 +85,7 @@ import com.fengbro.player.ui.theme.TextPrimary
 fun PlayerOverlay(
     state: PlayerUiState,
     clock: PlaybackClock,
+    spec: PlayerWindowSpec,
     onTogglePlay: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
@@ -105,23 +110,33 @@ fun PlayerOverlay(
         ) {
             Box(Modifier.fillMaxSize()) {
                 TopChrome(state, onToggleLock, onOpenSettings, Modifier.align(Alignment.TopCenter))
-                CenterPlay(state.isPlaying, onTogglePlay, Modifier.align(Alignment.Center))
+                CenterPlay(
+                    playing = state.isPlaying,
+                    sizeDp = spec.playButtonDp,
+                    onTogglePlay = onTogglePlay,
+                    modifier = Modifier.align(Alignment.Center),
+                )
                 if (state.hasLyrics && clock.currentLyric.isNotBlank()) {
                     Text(
                         text = clock.currentLyric,
                         color = Accent,
-                        fontSize = 16.sp,
+                        fontSize = if (spec.isCompactHeight) 14.sp else 16.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(start = 20.dp, end = 20.dp, bottom = 108.dp),
+                            .padding(
+                                start = spec.overlayHorizontalPadDp.dp,
+                                end = spec.overlayHorizontalPadDp.dp,
+                                bottom = if (spec.isCompactHeight) 84.dp else 108.dp,
+                            ),
                     )
                 }
                 BottomChrome(
                     state = state,
                     clock = clock,
+                    spec = spec,
                     onPrev = onPrev,
                     onNext = onNext,
                     onBeginSeek = onBeginSeek,
@@ -181,6 +196,7 @@ private fun TopChrome(
                 ),
             )
             .statusBarsPadding()
+            .windowInsetsPadding(WindowInsets.displayCutout)
             .padding(horizontal = 4.dp, vertical = 4.dp),
     ) {
         Row(
@@ -220,13 +236,14 @@ private fun TopChrome(
 @Composable
 private fun CenterPlay(
     playing: Boolean,
+    sizeDp: Int,
     onTogglePlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     IconButton(
         onClick = onTogglePlay,
         modifier = modifier
-            .size(76.dp)
+            .size(sizeDp.dp)
             .clip(CircleShape)
             .background(Color(0x66000000)),
     ) {
@@ -243,6 +260,7 @@ private fun CenterPlay(
 private fun BottomChrome(
     state: PlayerUiState,
     clock: PlaybackClock,
+    spec: PlayerWindowSpec,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onBeginSeek: () -> Unit,
@@ -262,7 +280,13 @@ private fun BottomChrome(
                 ),
             )
             .navigationBarsPadding()
-            .padding(start = 12.dp, end = 12.dp, top = 20.dp, bottom = 8.dp),
+            .windowInsetsPadding(WindowInsets.displayCutout)
+            .padding(
+                start = spec.overlayHorizontalPadDp.dp,
+                end = spec.overlayHorizontalPadDp.dp,
+                top = if (spec.isCompactHeight) 10.dp else 20.dp,
+                bottom = if (spec.isCompactHeight) 4.dp else 8.dp,
+            ),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
