@@ -22,4 +22,5 @@
     <string name="empty_stage">開啟檔案、資料夾，或貼上網路串流網址</string>
     <string name="no_cover">無封面</string>
     <string name="notification_channel">播放中</string>
+    <string name="picture_in_picture">子母畫面</string>
 </resources>

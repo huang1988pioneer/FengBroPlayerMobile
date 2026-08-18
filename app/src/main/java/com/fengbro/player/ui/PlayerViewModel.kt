@@ -3,11 +3,16 @@ package com.fengbro.player.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import com.fengbro.player.FengBroApp
+import com.fengbro.player.core.gesture.DragKind
+import com.fengbro.player.core.gesture.PlayerGestureMath
+import com.fengbro.player.core.gesture.TapZone
 import com.fengbro.player.core.lyrics.LrcParser
 import com.fengbro.player.core.media.MediaMetadata
 import com.fengbro.player.core.media.StreamUris
@@ -63,10 +68,25 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var extractJob: Job? = null
     private var subtitleUri: String? = null
     private var subtitleOwner: String? = null
+    private var flashJob: Job? = null
+    private var hudClearJob: Job? = null
+    private var stackResetJob: Job? = null
+    private var stackedSeekSeconds = 0
+    private var lastDoubleTapZone: TapZone? = null
+    private var savedRateBeforeBoost = 1f
+    private var gestureVolumeStart = 1f
+    private var gestureBrightnessStart = 0.55f
+    private var gestureSeekStartRatio = 0f
+    var requestEnterPip: (() -> Unit)? = null
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _ui.update { it.copy(isPlaying = isPlaying) }
+            if (isPlaying) {
+                scheduleHideChrome()
+            } else if (!_ui.value.isControlsLocked) {
+                showChrome(autoHide = false)
+            }
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -89,10 +109,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            val message = "無法播放此媒體：${error.message ?: error.errorCodeName}"
             _ui.update {
                 it.copy(
                     isPlaying = false,
-                    statusMessage = "無法播放此媒體：${error.message ?: error.errorCodeName}",
+                    statusMessage = message,
+                    flashMessage = message,
                 )
             }
         }
@@ -101,6 +123,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     init {
         recentStore.load()
         streamStore.load()
+        engine.sessionPlayer.onPlayNext = { playNext() }
+        engine.sessionPlayer.onPlayPrevious = { playPrevious() }
         engine.player.addListener(playerListener)
         refreshStores()
         viewModelScope.launch {
@@ -113,6 +137,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     override fun onCleared() {
         engine.player.removeListener(playerListener)
+        engine.sessionPlayer.onPlayNext = null
+        engine.sessionPlayer.onPlayPrevious = null
+        requestEnterPip = null
         super.onCleared()
     }
 
@@ -211,11 +238,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
         if (engine.isPlaying) {
             engine.pause()
+            showChrome(autoHide = false)
             return
         }
         if (engine.hasMedia) {
             engine.resume()
             engine.setRate(_ui.value.playbackRate)
+            showChrome(autoHide = true)
         } else {
             selectMedia(current)
         }
@@ -297,7 +326,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun togglePlaylist() {
-        _ui.update { it.copy(isPlaylistVisible = !it.isPlaylistVisible) }
+        val next = !_ui.value.isPlaylistVisible
+        _ui.update { it.copy(isPlaylistVisible = next, isSettingsVisible = if (next) false else it.isSettingsVisible) }
+    }
+
+    fun closePlaylist() {
+        _ui.update { it.copy(isPlaylistVisible = false) }
+    }
+
+    fun openSettings() {
+        _ui.update { it.copy(isSettingsVisible = true, isPlaylistVisible = false) }
+        onUserActivity()
+    }
+
+    fun closeSettings() {
+        _ui.update { it.copy(isSettingsVisible = false) }
     }
 
     fun clearDock() {
@@ -373,6 +416,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val clamped = rate.coerceIn(0.25f, 4f)
         engine.setRate(clamped)
         _ui.update { it.copy(playbackRate = clamped, statusMessage = "播放速度 ${"%.2f".format(clamped)}×") }
+        flash("速度 ${trimRate(clamped)}×")
+    }
+
+    fun toggleVideoFill() {
+        val next = !_ui.value.videoFill
+        _ui.update { it.copy(videoFill = next) }
+        flash(if (next) "畫面填滿" else "原始比例")
     }
 
     fun seekRelative(seconds: Double) {
@@ -388,15 +438,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun scrubTo(progress: Float) {
         val ratio = progress.coerceIn(0f, 1f)
         seekTarget = ratio
-        val duration = engine.length
+        val duration = engine.length.coerceAtLeast(_clock.value.durationMs)
+        val positionMs = if (duration > 0) (duration * ratio).toLong() else 0L
         _clock.update {
             it.copy(
                 progress = ratio,
-                positionText = if (duration > 0) {
-                    MediaMetadata.formatDuration((duration * ratio).toLong())
-                } else {
-                    it.positionText
-                },
+                positionMs = positionMs,
+                durationMs = if (duration > 0) duration else it.durationMs,
+                positionText = MediaMetadata.formatDuration(positionMs),
             )
         }
     }
@@ -423,14 +472,157 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun onUserActivity() {
-        if (_ui.value.chrome != ChromeMode.Fullscreen) return
-        _ui.update { it.copy(isControlBarVisible = true) }
+        if (_ui.value.current == null || _ui.value.isControlsLocked) return
+        showChrome(autoHide = _ui.value.isPlaying)
+    }
+
+    fun toggleChrome() {
+        if (_ui.value.current == null) return
+        if (_ui.value.isControlsLocked) {
+            flash("控制已鎖定，點解鎖即可")
+            return
+        }
+        if (_ui.value.isChromeVisible) hideChrome() else showChrome(autoHide = _ui.value.isPlaying)
+    }
+
+    fun showChrome(autoHide: Boolean = true) {
+        if (_ui.value.isControlsLocked) return
         hideBarJob?.cancel()
-        hideBarJob = viewModelScope.launch {
-            delay(2500)
-            if (!isSeeking && _ui.value.chrome == ChromeMode.Fullscreen) {
-                _ui.update { it.copy(isControlBarVisible = false) }
+        _ui.update { it.copy(isChromeVisible = true, isControlBarVisible = true) }
+        if (autoHide) scheduleHideChrome()
+    }
+
+    fun hideChrome() {
+        hideBarJob?.cancel()
+        _ui.update { it.copy(isChromeVisible = false, isControlBarVisible = false) }
+    }
+
+    fun toggleLock() {
+        val locked = !_ui.value.isControlsLocked
+        hideBarJob?.cancel()
+        _ui.update {
+            it.copy(
+                isControlsLocked = locked,
+                isChromeVisible = !locked,
+                isControlBarVisible = !locked,
+                isPlaylistVisible = if (locked) false else it.isPlaylistVisible,
+                isSettingsVisible = if (locked) false else it.isSettingsVisible,
+            )
+        }
+        flash(if (locked) "控制已鎖定" else "控制已解鎖")
+    }
+
+    fun onDoubleTap(zone: TapZone) {
+        if (_ui.value.current == null || _ui.value.isControlsLocked) return
+        if (zone == TapZone.Center) {
+            togglePlay()
+            return
+        }
+        if (lastDoubleTapZone != zone) stackedSeekSeconds = 0
+        lastDoubleTapZone = zone
+        stackedSeekSeconds += PlayerGestureMath.DOUBLE_TAP_STEP_SECONDS
+        seekRelative(if (zone == TapZone.Left) -10.0 else 10.0)
+        _ui.update { it.copy(gestureHud = GestureHud.DoubleTapSeek(zone, stackedSeekSeconds)) }
+        stackResetJob?.cancel()
+        stackResetJob = viewModelScope.launch {
+            delay(800)
+            stackedSeekSeconds = 0
+            lastDoubleTapZone = null
+            clearHudIf { it is GestureHud.DoubleTapSeek }
+        }
+    }
+
+    fun startSpeedBoost() {
+        val current = _ui.value.current
+        if (current?.isPlayable != true || _ui.value.isControlsLocked || _ui.value.isBoosting) return
+        savedRateBeforeBoost = _ui.value.playbackRate
+        engine.setRate(2f)
+        hideChrome()
+        _ui.update { it.copy(isBoosting = true, gestureHud = GestureHud.SpeedBoost) }
+    }
+
+    fun endSpeedBoost() {
+        if (!_ui.value.isBoosting) return
+        engine.setRate(savedRateBeforeBoost)
+        _ui.update { it.copy(isBoosting = false, gestureHud = GestureHud.Hidden) }
+        scheduleHideChrome()
+    }
+
+    fun beginVerticalGesture() {
+        hideBarJob?.cancel()
+        gestureVolumeStart = if (_ui.value.isMuted) 0f else _ui.value.volume
+        gestureBrightnessStart = _ui.value.screenBrightness
+    }
+
+    fun applyVerticalGesture(kind: DragKind, dy: Float, height: Float, finished: Boolean) {
+        if (_ui.value.current == null || _ui.value.isControlsLocked) return
+        val adj = PlayerGestureMath.verticalAdjustment(dy, height)
+        when (kind) {
+            DragKind.Volume -> {
+                val vol = (gestureVolumeStart + adj).coerceIn(0f, 1f)
+                setVolume(vol)
+                _ui.update { it.copy(gestureHud = GestureHud.Volume(vol)) }
             }
+            DragKind.Brightness -> {
+                val brightness = (gestureBrightnessStart + adj).coerceIn(0.01f, 1f)
+                _ui.update { it.copy(screenBrightness = brightness, gestureHud = GestureHud.Brightness(brightness)) }
+            }
+            DragKind.Seek -> Unit
+        }
+        if (finished) {
+            scheduleClearHud(400) { it is GestureHud.Volume || it is GestureHud.Brightness }
+            scheduleHideChrome()
+        }
+    }
+
+    fun beginSeekGesture() {
+        if (_ui.value.current?.isPlayable != true || _ui.value.isControlsLocked) return
+        hideBarJob?.cancel()
+        beginSeek()
+        gestureSeekStartRatio = _clock.value.progress
+    }
+
+    fun applySeekGesture(dx: Float, width: Float, finished: Boolean) {
+        if (!isSeeking || _ui.value.current?.isPlayable != true) {
+            if (finished) isSeeking = false
+            return
+        }
+        val duration = engine.length.coerceAtLeast(_clock.value.durationMs)
+        val delta = PlayerGestureMath.seekDeltaSeconds(dx, width, duration / 1000.0)
+        val startMs = gestureSeekStartRatio * duration
+        val targetMs = (startMs + delta * 1000.0).coerceIn(0.0, duration.toDouble().coerceAtLeast(0.0))
+        val ratio = if (duration > 0) (targetMs / duration).toFloat() else 0f
+        scrubTo(ratio)
+        _ui.update {
+            it.copy(gestureHud = GestureHud.SeekPreview(targetMs.toLong(), delta, duration))
+        }
+        if (finished) {
+            endSeek()
+            scheduleClearHud(400) { hud -> hud is GestureHud.SeekPreview }
+            scheduleHideChrome()
+        }
+    }
+
+    fun consumeBack(): Boolean {
+        val state = _ui.value
+        return when {
+            state.isControlsLocked -> {
+                toggleLock()
+                true
+            }
+            state.isSettingsVisible -> {
+                closeSettings()
+                true
+            }
+            state.isPlaylistVisible -> {
+                closePlaylist()
+                true
+            }
+            state.chrome == ChromeMode.Fullscreen -> {
+                notifyExitedFullscreen()
+                true
+            }
+            else -> false
         }
     }
 
@@ -448,6 +640,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         subtitleOwner = _ui.value.current?.identityKey
         val name = LocalMetadataReader.displayName(getApplication<Application>().contentResolver, uri)
         _ui.update { it.copy(hasSubtitle = true, subtitleName = name, statusMessage = "已載入字幕：$name") }
+        flash("已載入字幕")
         _ui.value.current?.let { selectMedia(it) }
     }
 
@@ -455,6 +648,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         subtitleUri = null
         subtitleOwner = null
         _ui.update { it.copy(hasSubtitle = false, subtitleName = "", statusMessage = "已關閉字幕") }
+        flash("已關閉字幕")
         _ui.value.current?.let { if (it.kind == MediaKind.Video) selectMedia(it) }
     }
 
@@ -488,6 +682,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 it.copy(
                     chrome = mode,
                     isPlaylistVisible = false,
+                    isSettingsVisible = false,
+                    isChromeVisible = true,
                     isControlBarVisible = true,
                 )
             }
@@ -498,9 +694,56 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 it.copy(
                     chrome = mode,
                     isPlaylistVisible = playlistVisibleBeforeFs,
+                    isChromeVisible = true,
                     isControlBarVisible = true,
                 )
             }
+            scheduleHideChrome()
+        }
+    }
+
+    private fun scheduleHideChrome() {
+        hideBarJob?.cancel()
+        if (!_ui.value.isPlaying || _ui.value.isControlsLocked || isSeeking || _ui.value.isBoosting) return
+        if (_ui.value.current == null) return
+        hideBarJob = viewModelScope.launch {
+            delay(3_000)
+            if (!isSeeking && _ui.value.isPlaying && !_ui.value.isBoosting && !_ui.value.isControlsLocked) {
+                _ui.update { it.copy(isChromeVisible = false, isControlBarVisible = false) }
+            }
+        }
+    }
+
+    private fun flash(message: String) {
+        _ui.update { it.copy(flashMessage = message) }
+        flashJob?.cancel()
+        flashJob = viewModelScope.launch {
+            delay(2_400)
+            _ui.update { state ->
+                if (state.flashMessage == message) state.copy(flashMessage = "") else state
+            }
+        }
+    }
+
+    private fun scheduleClearHud(delayMs: Long, predicate: (GestureHud) -> Boolean) {
+        hudClearJob?.cancel()
+        hudClearJob = viewModelScope.launch {
+            delay(delayMs)
+            clearHudIf(predicate)
+        }
+    }
+
+    private fun clearHudIf(predicate: (GestureHud) -> Boolean) {
+        _ui.update { state ->
+            if (predicate(state.gestureHud)) state.copy(gestureHud = GestureHud.Hidden) else state
+        }
+    }
+
+    private fun trimRate(rate: Float): String {
+        return if (rate == rate.toLong().toFloat()) {
+            rate.toLong().toString()
+        } else {
+            "%.2f".format(rate).trimEnd('0').trimEnd('.')
         }
     }
 
@@ -509,7 +752,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             subtitleUri = null
             _ui.update { it.copy(hasSubtitle = false, subtitleName = "") }
         }
-        engine.playUri(item.filePath!!, subtitleUri = if (item.kind == MediaKind.Video) subtitleUri else null)
+        engine.playUri(
+            uri = item.filePath!!,
+            subtitleUri = if (item.kind == MediaKind.Video) subtitleUri else null,
+            title = item.title,
+            artist = item.subtitle,
+            artwork = item.coverArt,
+            mediaId = item.id,
+            isVideo = item.kind == MediaKind.Video,
+        )
         _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放：${item.title}") }
         if (generation != selectGeneration) return
     }
@@ -531,12 +782,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     return@launch
                 }
                 applyNetworkMetadata(url, resolved.title, resolved.duration, resolved.uploader)
-                engine.playResolved(resolved, preferVideo = item.kind == MediaKind.Video)
+                engine.playResolved(
+                    resolved,
+                    preferVideo = item.kind == MediaKind.Video,
+                    title = resolved.title,
+                    artist = resolved.uploader,
+                )
                 _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放：${resolved.title}") }
             }
             return
         }
-        engine.playUri(url)
+        engine.playUri(
+            uri = url,
+            title = item.title,
+            artist = item.subtitle,
+            mediaId = item.id,
+            isVideo = item.kind == MediaKind.Video,
+        )
         _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放網路媒體：${item.title}") }
     }
 
@@ -589,6 +851,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _clock.update {
             PlaybackClock(durationText = item.duration.ifBlank { "00:00" })
         }
+        showChrome(autoHide = true)
         publishLists(_ui.value)
     }
 
@@ -618,6 +881,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 positionText = MediaMetadata.formatDuration(time),
                 durationText = if (duration > 0) MediaMetadata.formatDuration(duration) else it.durationText,
                 currentLyric = lyric,
+                positionMs = time,
+                durationMs = if (duration > 0) duration else it.durationMs,
             )
         }
     }
@@ -649,10 +914,53 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun enterPictureInPicture() {
+        if (!canEnterPip()) {
+            flash("子母畫面僅適用於影片")
+            return
+        }
+        requestEnterPip?.invoke()
+    }
+
+    fun canEnterPip(): Boolean = _ui.value.isVideoStage && _ui.value.current != null
+
+    fun setInPictureInPicture(value: Boolean) {
+        _ui.update {
+            it.copy(
+                isInPictureInPicture = value,
+                isChromeVisible = if (value) false else it.isChromeVisible,
+                isControlBarVisible = if (value) false else it.isControlBarVisible,
+                isPlaylistVisible = if (value) false else it.isPlaylistVisible,
+                isSettingsVisible = if (value) false else it.isSettingsVisible,
+            )
+        }
+        if (!value && !_ui.value.isControlsLocked) {
+            showChrome(autoHide = _ui.value.isPlaying)
+        }
+    }
+
+    fun pipAspect(): Pair<Int, Int> {
+        val item = _ui.value.current
+        val width = item?.videoWidth ?: 0
+        val height = item?.videoHeight ?: 0
+        if (width <= 0 || height <= 0) return 16 to 9
+        val max = 2.39
+        var w = width.toDouble()
+        var h = height.toDouble()
+        if (w / h > max) w = h * max
+        if (h / w > max) h = w * max
+        return w.toInt().coerceAtLeast(1) to h.toInt().coerceAtLeast(1)
+    }
+
     private fun startPlaybackService() {
         val context = getApplication<Application>()
+        val intent = Intent(context, PlaybackService::class.java)
         runCatching {
-            context.startService(Intent(context, PlaybackService::class.java))
+            if (Build.VERSION.SDK_INT >= 26) {
+                ContextCompat.startForegroundService(context, intent)
+            } else {
+                context.startService(intent)
+            }
         }
     }
 

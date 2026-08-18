@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.FengBroPlayer" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:statusBarColor">#0D0D0D</item>
-        <item name="android:navigationBarColor">#0D0D0D</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowBackground">#0D0D0D</item>
         <item name="android:colorPrimary">#3B9EFF</item>
-        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">false</item>
     </style>
 </resources>
