@@ -33,6 +33,7 @@ class StreamUrisTest {
         assertTrue(StreamUris.needsExtraction("https://www.youtube.com/watch?v=dQw4w9wg"))
         assertTrue(StreamUris.needsExtraction("https://youtu.be/dQw4w9wg"))
         assertTrue(StreamUris.needsExtraction("https://www.bilibili.com/video/BV1xx"))
+        assertTrue(StreamUris.needsExtraction("https://b23.tv/JE0dowa"))
         assertFalse(StreamUris.needsExtraction("https://cdn.example.com/a.mp4"))
     }
 }

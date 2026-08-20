@@ -35,6 +35,7 @@ object StreamUris {
             host.contains("music.youtube.com") ||
             host.contains("twitch.tv") ||
             host.contains("bilibili.com") ||
+            host == "b23.tv" ||
             host.contains("nicovideo.jp")
     }
 
