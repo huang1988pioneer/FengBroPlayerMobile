@@ -11,19 +11,25 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import com.fengbro.player.core.model.ResolvedStream
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
-class PlayerHolder(context: Context) {
+internal class PlayerHolder(context: Context) {
     private val appContext = context.applicationContext
 
-    private val httpFactory = DefaultHttpDataSource.Factory()
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
+
+    private val httpFactory = OkHttpDataSource.Factory(httpClient)
         .setUserAgent(USER_AGENT)
-        .setAllowCrossProtocolRedirects(true)
-        .setConnectTimeoutMs(15_000)
-        .setReadTimeoutMs(20_000)
 
     private val dataSourceFactory = DefaultDataSource.Factory(appContext, httpFactory)
     private val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
@@ -74,6 +80,7 @@ class PlayerHolder(context: Context) {
         isVideo: Boolean = false,
     ) {
         lastError = null
+        httpFactory.setDefaultRequestProperties(emptyMap())
         val builder = MediaItem.Builder().setUri(uri)
         if (!mediaId.isNullOrBlank()) builder.setMediaId(mediaId)
         if (!mimeType.isNullOrBlank()) builder.setMimeType(mimeType)

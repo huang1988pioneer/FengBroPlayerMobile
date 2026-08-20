@@ -5,20 +5,22 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
+import android.os.Bundle
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.fengbro.player.FengBroApp
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.fengbro.player.MainActivity
 import com.fengbro.player.R
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 @UnstableApi
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
+    private lateinit var engine: PlayerHolder
 
     override fun onCreate() {
         super.onCreate()
@@ -30,22 +32,9 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         createNotificationChannel()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            NotificationCompat.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_stat_play)
-                .setContentTitle(getString(R.string.app_name))
-                .setContentText(getString(R.string.notification_channel))
-                .setContentIntent(sessionActivity)
-                .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setOnlyAlertOnce(true)
-                .setOngoing(true)
-                .build(),
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK,
-        )
-        val player = FengBroApp.instance.playerHolder.player
+        engine = PlayerHolder(this)
+        engine.sessionPlayer.onPlayNext = { notifyAppController(PlaybackProtocol.EVENT_NEXT) }
+        engine.sessionPlayer.onPlayPrevious = { notifyAppController(PlaybackProtocol.EVENT_PREVIOUS) }
         setMediaNotificationProvider(
             DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId(CHANNEL_ID)
@@ -56,9 +45,10 @@ class PlaybackService : MediaSessionService() {
                     provider.setSmallIcon(R.drawable.ic_stat_play)
                 },
         )
-        mediaSession = MediaSession.Builder(this, player)
+        mediaSession = MediaSession.Builder(this, engine.player)
             .setId(SESSION_ID)
             .setSessionActivity(sessionActivity)
+            .setCallback(SessionCallback())
             .build()
     }
 
@@ -75,20 +65,70 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        stopPlaybackAndService()
+        shutDown()
         super.onTaskRemoved(rootIntent)
     }
 
-    private fun stopPlaybackAndService() {
-        mediaSession?.player?.stop()
+    private fun shutDown() {
+        stopPlaybackAndForeground()
+        mediaSession?.release()
+        mediaSession = null
+    }
+
+    private fun stopPlaybackAndForeground() {
+        engine.stop()
         stopForeground(Service.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        engine.sessionPlayer.onPlayNext = null
+        engine.sessionPlayer.onPlayPrevious = null
         mediaSession?.release()
         mediaSession = null
+        engine.release()
         super.onDestroy()
+    }
+
+    private fun notifyAppController(action: String) {
+        val session = mediaSession ?: return
+        val command = SessionCommand(action, Bundle.EMPTY)
+        session.connectedControllers
+            .filter { it.packageName == packageName }
+            .forEach { session.sendCustomCommand(it, command, Bundle.EMPTY) }
+    }
+
+    private inner class SessionCallback : MediaSession.Callback {
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+        ): MediaSession.ConnectionResult {
+            val builder = MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+            if (controller.packageName == packageName) {
+                val commands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                    .add(SessionCommand(PlaybackProtocol.PLAY_URI, Bundle.EMPTY))
+                    .add(SessionCommand(PlaybackProtocol.PLAY_RESOLVED, Bundle.EMPTY))
+                    .add(SessionCommand(PlaybackProtocol.STOP_SERVICE, Bundle.EMPTY))
+                    .build()
+                builder.setAvailableSessionCommands(commands)
+            }
+            return builder.build()
+        }
+
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            when (customCommand.customAction) {
+                PlaybackProtocol.PLAY_URI -> PlaybackProtocol.playUri(engine, args)
+                PlaybackProtocol.PLAY_RESOLVED -> PlaybackProtocol.playResolved(engine, args)
+                PlaybackProtocol.STOP_SERVICE -> stopPlaybackAndForeground()
+                else -> return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_NOT_SUPPORTED))
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
     }
 
     companion object {

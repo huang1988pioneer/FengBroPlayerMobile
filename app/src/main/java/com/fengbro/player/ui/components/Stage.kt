@@ -62,12 +62,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.Player
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.fengbro.player.core.gesture.TapZone
 import com.fengbro.player.core.layout.PlayerWindowSpec
 import com.fengbro.player.core.model.RecentPlayEntry
-import com.fengbro.player.playback.PlayerHolder
 import com.fengbro.player.ui.PlaybackClock
 import com.fengbro.player.ui.PlayerUiState
 import com.fengbro.player.ui.rememberPlayerWindowSpec
@@ -80,12 +80,12 @@ import com.fengbro.player.ui.theme.TextMuted
 import com.fengbro.player.ui.theme.TextPrimary
 import com.fengbro.player.ui.theme.TextSecondary
 
-@OptIn(UnstableApi::class)
+@UnstableApi
 @Composable
 fun PlayerStage(
     state: PlayerUiState,
     clock: PlaybackClock,
-    playerHolder: PlayerHolder,
+    player: Player?,
     onToggleChrome: () -> Unit,
     onDoubleTap: (TapZone) -> Unit,
     onLongPressStart: () -> Unit,
@@ -124,12 +124,12 @@ fun PlayerStage(
                     factory = { context ->
                         (LayoutInflater.from(context).inflate(R.layout.player_view, null) as PlayerView).apply {
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            player = playerHolder.player
+                            this.player = player
                         }
                     },
                     update = { view ->
-                        if (view.player !== playerHolder.player) {
-                            view.player = playerHolder.player
+                        if (view.player !== player) {
+                            view.player = player
                         }
                         view.resizeMode = if (state.videoFill) {
                             AspectRatioFrameLayout.RESIZE_MODE_ZOOM

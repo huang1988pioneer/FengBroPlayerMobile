@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.fengbro.player.FengBroApp
 import com.fengbro.player.core.model.ChromeMode
 import com.fengbro.player.ui.components.PlayerOverlay
 import com.fengbro.player.ui.components.PlayerSettingsSheet
@@ -43,7 +42,7 @@ import com.fengbro.player.ui.theme.BgPanel
 fun PlayerScreen(viewModel: PlayerViewModel) {
     val state by viewModel.ui.collectAsStateWithLifecycle()
     val clock by viewModel.clock.collectAsStateWithLifecycle()
-    val playerHolder = FengBroApp.instance.playerHolder
+    val player by viewModel.playbackPlayer.collectAsStateWithLifecycle()
     val spec = rememberPlayerWindowSpec()
     val sidePlaylist = spec.useSidePlaylist && state.isPlaylistVisible && !state.isInPictureInPicture
     val sheetPlaylist = !spec.useSidePlaylist && state.isPlaylistVisible && !state.isInPictureInPicture
@@ -90,7 +89,7 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         PlayerStage(
             state = state,
             clock = clock,
-            playerHolder = playerHolder,
+            player = player,
             onToggleChrome = viewModel::toggleChrome,
             onDoubleTap = viewModel::onDoubleTap,
             onLongPressStart = viewModel::startSpeedBoost,

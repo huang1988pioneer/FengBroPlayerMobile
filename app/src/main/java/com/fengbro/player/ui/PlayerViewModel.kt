@@ -1,10 +1,7 @@
 package com.fengbro.player.ui
 
 import android.app.Application
-import android.content.Intent
 import android.net.Uri
-import android.os.Build
-import androidx.core.content.ContextCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -23,11 +20,10 @@ import com.fengbro.player.core.model.MediaKind
 import com.fengbro.player.core.model.RecentPlayEntry
 import com.fengbro.player.core.model.SideDockPane
 import com.fengbro.player.core.playlist.PlaylistManager
-import com.fengbro.player.core.store.RecentStore
+import com.fengbro.player.data.PlayerPreferences
 import com.fengbro.player.playback.LocalMetadataReader
 import com.fengbro.player.playback.PageStreamExtractor
-import com.fengbro.player.playback.PlaybackService
-import com.fengbro.player.playback.PlayerHolder
+import com.fengbro.player.playback.PlaybackConnection
 import com.fengbro.player.playback.SidecarFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,16 +39,13 @@ import java.io.File
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
     private val playlist = PlaylistManager()
-    private val recentStore = RecentStore(
-        File(application.filesDir, "recent.json"),
-        maxEntries = 50,
-    )
-    private val streamStore = RecentStore(
-        File(application.filesDir, "recent-streams.json"),
-        maxEntries = 30,
-        requireSourceUrl = true,
-    )
-    private val engine: PlayerHolder = FengBroApp.instance.playerHolder
+    private val mediaLibrary = FengBroApp.instance.mediaLibrary
+    private val preferences = FengBroApp.instance.playerPreferences
+    private var recentEntries: List<RecentPlayEntry> = emptyList()
+    private var streamEntries: List<RecentPlayEntry> = emptyList()
+    private var libraryReady = false
+    private val engine = PlaybackConnection(application)
+    val playbackPlayer: StateFlow<Player?> = engine.player
 
     private val _ui = MutableStateFlow(PlayerUiState())
     val ui: StateFlow<PlayerUiState> = _ui.asStateFlow()
@@ -104,6 +97,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         val current = state.current ?: return@update state
                         if (current.duration == "--:--" || current.duration == "—:—") {
                             current.duration = MediaMetadata.formatDuration(duration)
+                            persistPlaylist()
                         }
                         publishLists(state)
                     }
@@ -124,12 +118,51 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     init {
-        recentStore.load()
-        streamStore.load()
-        engine.sessionPlayer.onPlayNext = { playNext() }
-        engine.sessionPlayer.onPlayPrevious = { playPrevious() }
-        engine.player.addListener(playerListener)
+        engine.onPlayNext = { playNext() }
+        engine.onPlayPrevious = { playPrevious() }
+        engine.addListener(playerListener)
         refreshStores()
+        viewModelScope.launch {
+            mediaLibrary.migrateLegacy(
+                File(application.filesDir, "recent.json"),
+                File(application.filesDir, "recent-streams.json"),
+                preferences,
+            )
+            val restored = mediaLibrary.loadPlaylist()
+            if (restored.isNotEmpty()) playlist.importPrepared(restored, selectFirst = false)
+            libraryReady = true
+            mediaLibrary.replacePlaylist(playlist.snapshot)
+            refreshStores()
+        }
+        viewModelScope.launch {
+            mediaLibrary.recents.collect { entries ->
+                recentEntries = entries
+                refreshStores()
+            }
+        }
+        viewModelScope.launch {
+            mediaLibrary.streams.collect { entries ->
+                streamEntries = entries
+                refreshStores()
+            }
+        }
+        viewModelScope.launch {
+            preferences.preferences.collect { value ->
+                volumeBeforeMute = value.volume.takeIf { it > 0f } ?: 1f
+                engine.volume = if (value.muted) 0f else value.volume
+                engine.setRate(value.playbackRate)
+                _ui.update {
+                    it.copy(
+                        autoPlay = value.autoPlay,
+                        volume = value.volume,
+                        isMuted = value.muted,
+                        playbackRate = value.playbackRate,
+                        videoFill = value.videoFill,
+                        screenBrightness = value.screenBrightness,
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             while (isActive) {
                 tickClock()
@@ -139,9 +172,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
-        engine.player.removeListener(playerListener)
-        engine.sessionPlayer.onPlayNext = null
-        engine.sessionPlayer.onPlayPrevious = null
+        engine.removeListener(playerListener)
+        engine.release()
         requestEnterPip = null
         super.onCleared()
     }
@@ -175,6 +207,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
             val result = playlist.importPrepared(prepared, selectFirst)
+            persistPlaylist()
             publishLists(_ui.value.copy(statusMessage = result.statusMessage))
             result.shouldSelect?.let { selectMedia(it) }
         }
@@ -201,6 +234,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 return@launch
             }
             val result = playlist.importPrepared(files, selectFirst = true)
+            persistPlaylist()
             publishLists(_ui.value.copy(statusMessage = result.statusMessage))
             result.shouldSelect?.let { selectMedia(it) }
         }
@@ -223,14 +257,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _ui.update { it.copy(showNetworkDialog = false, networkUrlDraft = raw) }
         val playImmediately = _ui.value.networkPlayImmediately
         val result = playlist.addNetworkUrl(raw, playImmediately)
-        if (result.normalizedUrl != null) {
-            streamStore.recordUrl(
-                result.normalizedUrl!!,
-                result.item?.title,
-                result.item?.kind ?: MediaKind.Video,
-                format = result.item?.format ?: "URL",
-            )
+        val normalizedUrl = result.normalizedUrl
+        if (normalizedUrl != null) {
+            viewModelScope.launch {
+                mediaLibrary.recordUrl(
+                    normalizedUrl,
+                    result.item?.title ?: normalizedUrl,
+                    result.item?.kind ?: MediaKind.Video,
+                    result.item?.format ?: "URL",
+                )
+            }
         }
+        persistPlaylist()
         publishLists(_ui.value.copy(statusMessage = result.statusMessage))
         result.shouldSelect?.let { selectMedia(it) }
     }
@@ -285,7 +323,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun stopMedia() {
         engine.stop()
-        stopPlaybackService()
+        engine.stopService()
         _clock.update { PlaybackClock(durationText = _ui.value.current?.duration ?: "00:00") }
         _ui.update {
             it.copy(
@@ -327,20 +365,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
         val item = entry.toMediaItem(playlist.size + 1)
         playlist.insert(0, item)
+        persistPlaylist()
         publishLists(_ui.value)
         selectMedia(item)
     }
 
     fun removeRecent(entry: RecentPlayEntry) {
-        recentStore.remove(entry)
+        viewModelScope.launch { mediaLibrary.removeRecent(entry) }
         _ui.update { it.copy(statusMessage = "已自最近播放移除：${entry.title}") }
-        refreshStores()
     }
 
     fun removeStream(entry: RecentPlayEntry) {
-        streamStore.remove(entry)
+        viewModelScope.launch { mediaLibrary.removeStream(entry) }
         _ui.update { it.copy(statusMessage = "已自最近串流移除：${entry.title}") }
-        refreshStores()
     }
 
     fun showDock(pane: SideDockPane) {
@@ -380,18 +417,17 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun clearDock() {
         when (_ui.value.dockPane) {
             SideDockPane.Recent -> {
-                recentStore.clear()
+                viewModelScope.launch { mediaLibrary.clearRecents() }
                 _ui.update { it.copy(statusMessage = "已清除最近播放紀錄") }
-                refreshStores()
             }
             SideDockPane.Streams -> {
-                streamStore.clear()
+                viewModelScope.launch { mediaLibrary.clearStreams() }
                 _ui.update { it.copy(statusMessage = "已清除最近網路串流紀錄") }
-                refreshStores()
             }
             SideDockPane.Playlist -> {
                 engine.stop()
                 playlist.clear()
+                persistPlaylist()
                 _clock.value = PlaybackClock()
                 _ui.update {
                     it.copy(
@@ -414,6 +450,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setAutoPlay(value: Boolean) {
         _ui.update { it.copy(autoPlay = value) }
+        savePreferences()
     }
 
     fun setVolume(value: Float) {
@@ -428,6 +465,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (vol > 0f && _ui.value.isMuted) {
             _ui.update { it.copy(isMuted = false) }
         }
+        savePreferences()
     }
 
     fun nudgeVolume(delta: Float) {
@@ -444,18 +482,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             engine.volume = 0f
             _ui.update { it.copy(isMuted = true, statusMessage = "已靜音") }
         }
+        savePreferences()
     }
 
     fun setPlaybackRate(rate: Float) {
         val clamped = rate.coerceIn(0.25f, 4f)
         engine.setRate(clamped)
         _ui.update { it.copy(playbackRate = clamped, statusMessage = "播放速度 ${"%.2f".format(clamped)}×") }
+        savePreferences()
         flash("速度 ${trimRate(clamped)}×")
     }
 
     fun toggleVideoFill() {
         val next = !_ui.value.videoFill
         _ui.update { it.copy(videoFill = next) }
+        savePreferences()
         flash(if (next) "畫面填滿" else "原始比例")
     }
 
@@ -604,6 +645,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             DragKind.Seek -> Unit
         }
         if (finished) {
+            if (kind == DragKind.Brightness) savePreferences()
             scheduleClearHud(400) { it is GestureHud.Volume || it is GestureHud.Brightness }
             scheduleHideChrome()
         }
@@ -675,6 +717,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         subtitleOwner = _ui.value.current?.identityKey
         subtitleSuppressedFor = null
         _ui.value.current?.sidecarSubtitleUri = subtitleUri
+        persistPlaylist()
         val name = LocalMetadataReader.displayName(getApplication<Application>().contentResolver, uri)
         _ui.update { it.copy(hasSubtitle = true, subtitleName = name, statusMessage = "已載入字幕：$name") }
         flash("已載入字幕")
@@ -685,6 +728,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         subtitleUri = null
         subtitleOwner = null
         subtitleSuppressedFor = _ui.value.current?.identityKey
+        _ui.value.current?.sidecarSubtitleUri = null
+        persistPlaylist()
         _ui.update { it.copy(hasSubtitle = false, subtitleName = "", statusMessage = "已關閉字幕") }
         flash("已關閉字幕")
         _ui.value.current?.let { if (it.kind == MediaKind.Video) selectMedia(it) }
@@ -703,6 +748,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         current.sidecarLrcUri = uri.toString()
+        persistPlaylist()
         _ui.update {
             it.copy(
                 lyrics = lines,
@@ -718,6 +764,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun clearLyric() {
         _ui.value.current?.sidecarLrcUri = null
+        persistPlaylist()
         _ui.update {
             it.copy(
                 lyrics = emptyList(),
@@ -731,6 +778,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun removeFromPlaylist(item: MediaItem) {
         val wasCurrent = _ui.value.current?.id == item.id
         playlist.remove(item)
+        persistPlaylist()
         if (wasCurrent) {
             val next = playlist.firstPlayable()
             if (next != null) selectMedia(next) else stopMedia().also {
@@ -834,7 +882,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             mediaId = item.id,
             isVideo = item.kind == MediaKind.Video,
         )
-        startPlaybackService()
         _ui.update {
             it.copy(
                 isPlaying = true,
@@ -871,7 +918,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     title = resolved.title,
                     artist = resolved.uploader,
                 )
-                startPlaybackService()
                 _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放：${resolved.title}") }
             }
             return
@@ -883,7 +929,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             mediaId = item.id,
             isVideo = item.kind == MediaKind.Video,
         )
-        startPlaybackService()
         _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放網路媒體：${item.title}") }
     }
 
@@ -893,8 +938,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             if (!uploader.isNullOrBlank()) item.subtitle = uploader
             if (!duration.isNullOrBlank()) item.duration = duration
         }
-        recentStore.updateMetadata(sourceUrl, title, duration, uploader)
-        streamStore.updateMetadata(sourceUrl, title, duration, uploader)
+        viewModelScope.launch { mediaLibrary.updateMetadata(sourceUrl, title, duration, uploader) }
+        persistPlaylist()
         _ui.update { state ->
             val current = state.current
             val nextTitle = if (current?.sourceUrl.equals(sourceUrl, ignoreCase = true)) {
@@ -937,9 +982,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun recordRecent(item: MediaItem) {
-        recentStore.record(item)
-        if (item.isNetworkSource) streamStore.record(item)
-        refreshStores()
+        viewModelScope.launch { mediaLibrary.record(item) }
     }
 
     private fun onEndReached() {
@@ -973,8 +1016,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val index = playlist.indexOf(current)
         val next = base.copy(
             playlist = playlist.snapshot,
-            recent = recentStore.snapshot,
-            streams = streamStore.snapshot,
+            recent = recentEntries,
+            streams = streamEntries,
             playlistPositionText = if (playlist.isEmpty) {
                 "0 / 0"
             } else {
@@ -988,11 +1031,30 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun refreshStores() {
         _ui.update {
             it.copy(
-                recent = recentStore.snapshot,
-                streams = streamStore.snapshot,
+                recent = recentEntries,
+                streams = streamEntries,
                 playlist = playlist.snapshot,
             )
         }
+    }
+
+    private fun persistPlaylist() {
+        if (!libraryReady) return
+        val snapshot = playlist.snapshot
+        viewModelScope.launch { mediaLibrary.replacePlaylist(snapshot) }
+    }
+
+    private fun savePreferences() {
+        val state = _ui.value
+        val value = PlayerPreferences(
+            autoPlay = state.autoPlay,
+            volume = state.volume,
+            muted = state.isMuted,
+            playbackRate = state.playbackRate,
+            videoFill = state.videoFill,
+            screenBrightness = state.screenBrightness,
+        )
+        viewModelScope.launch { preferences.save(value) }
     }
 
     fun enterPictureInPicture() {
@@ -1034,23 +1096,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun appName(): String = getApplication<Application>().getString(com.fengbro.player.R.string.app_name)
-
-    private fun startPlaybackService() {
-        val context = getApplication<Application>()
-        val intent = Intent(context, PlaybackService::class.java)
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 26) {
-                ContextCompat.startForegroundService(context, intent)
-            } else {
-                context.startService(intent)
-            }
-        }
-    }
-
-    private fun stopPlaybackService() {
-        val context = getApplication<Application>()
-        runCatching { context.stopService(Intent(context, PlaybackService::class.java)) }
-    }
 
     private fun resolveSubtitle(item: MediaItem): String? {
         if (item.kind != MediaKind.Video) return null
