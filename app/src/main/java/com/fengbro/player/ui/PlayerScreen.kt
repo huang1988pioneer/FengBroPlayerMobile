@@ -67,10 +67,16 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::attachSubtitle) }
 
-    fun launchOpenMedia() = openMedia.launch(arrayOf("audio/*", "video/*"))
-    fun launchQueueMedia() = queueMedia.launch(arrayOf("audio/*", "video/*"))
+    val openLyric = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::attachLyric) }
+
+    val mediaAndSidecarTypes = arrayOf("audio/*", "video/*", "text/plain", "application/octet-stream")
+    fun launchOpenMedia() = openMedia.launch(mediaAndSidecarTypes)
+    fun launchQueueMedia() = queueMedia.launch(mediaAndSidecarTypes)
     fun launchOpenFolder() = openFolder.launch(null)
     fun launchSubtitle() = openSubtitle.launch(arrayOf("application/*", "text/*", "*/*"))
+    fun launchLyric() = openLyric.launch(arrayOf("text/*", "application/octet-stream", "*/*"))
 
     BackHandler(enabled = shouldHandleBack(state)) {
         viewModel.consumeBack()
@@ -194,6 +200,14 @@ fun PlayerScreen(viewModel: PlayerViewModel) {
             },
             onClearSubtitle = {
                 viewModel.clearSubtitle()
+                viewModel.closeSettings()
+            },
+            onOpenLyric = {
+                viewModel.closeSettings()
+                launchLyric()
+            },
+            onClearLyric = {
+                viewModel.clearLyric()
                 viewModel.closeSettings()
             },
             onToggleInfo = {

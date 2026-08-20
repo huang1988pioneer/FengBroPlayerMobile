@@ -149,13 +149,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     fun importUris(uris: List<Uri>, selectFirst: Boolean = true) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
-            val prepared = withContext(Dispatchers.IO) {
-                val named = uris.map { uri ->
+            val named = withContext(Dispatchers.IO) {
+                uris.map { uri ->
                     uri to LocalMetadataReader.displayName(
                         getApplication<Application>().contentResolver,
                         uri,
                     )
                 }
+            }
+            if (named.size == 1 && MediaMetadata.isLyric(named.first().second) && _ui.value.current != null) {
+                attachLyric(named.first().first)
+                return@launch
+            }
+            val prepared = withContext(Dispatchers.IO) {
                 val subtitleByStem = SidecarFiles.pairSubtitles(named)
                 val lyricByStem = SidecarFiles.pairLyrics(named)
                 named.mapNotNull { (uri, name) ->
@@ -681,6 +687,44 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         _ui.update { it.copy(hasSubtitle = false, subtitleName = "", statusMessage = "已關閉字幕") }
         flash("已關閉字幕")
         _ui.value.current?.let { if (it.kind == MediaKind.Video) selectMedia(it) }
+    }
+
+    fun attachLyric(uri: Uri) {
+        val current = _ui.value.current
+        if (current == null) {
+            _ui.update { it.copy(statusMessage = "請先開啟音樂或影片") }
+            return
+        }
+        persistRead(uri)
+        val lines = readLrc(uri)
+        if (lines.isEmpty()) {
+            _ui.update { it.copy(statusMessage = "無法讀取此歌詞檔，請選擇 .lrc 檔案") }
+            return
+        }
+        current.sidecarLrcUri = uri.toString()
+        _ui.update {
+            it.copy(
+                lyrics = lines,
+                hasLyrics = true,
+                statusMessage = "已載入歌詞：${LocalMetadataReader.displayName(getApplication<Application>().contentResolver, uri)}",
+            )
+        }
+        _clock.update {
+            it.copy(currentLyric = LrcParser.currentLine(lines, engine.time)?.text.orEmpty())
+        }
+        flash("已載入歌詞")
+    }
+
+    fun clearLyric() {
+        _ui.value.current?.sidecarLrcUri = null
+        _ui.update {
+            it.copy(
+                lyrics = emptyList(),
+                hasLyrics = false,
+                statusMessage = "已關閉歌詞",
+            )
+        }
+        _clock.update { it.copy(currentLyric = "") }
     }
 
     fun removeFromPlaylist(item: MediaItem) {

@@ -46,6 +46,8 @@ fun PlayerSettingsSheet(
     onToggleFill: () -> Unit,
     onOpenSubtitle: () -> Unit,
     onClearSubtitle: () -> Unit,
+    onOpenLyric: () -> Unit,
+    onClearLyric: () -> Unit,
     onToggleInfo: () -> Unit,
     onEnterPip: () -> Unit,
     onStop: () -> Unit,
@@ -72,6 +74,8 @@ fun PlayerSettingsSheet(
                     onToggleFill = onToggleFill,
                     onOpenSubtitle = onOpenSubtitle,
                     onClearSubtitle = onClearSubtitle,
+                    onOpenLyric = onOpenLyric,
+                    onClearLyric = onClearLyric,
                     onToggleInfo = onToggleInfo,
                     onEnterPip = onEnterPip,
                     onStop = onStop,
@@ -99,6 +103,8 @@ fun PlayerSettingsSheet(
                 onToggleFill = onToggleFill,
                 onOpenSubtitle = onOpenSubtitle,
                 onClearSubtitle = onClearSubtitle,
+                onOpenLyric = onOpenLyric,
+                onClearLyric = onClearLyric,
                 onToggleInfo = onToggleInfo,
                 onEnterPip = onEnterPip,
                 onStop = onStop,
@@ -125,6 +131,8 @@ private fun SettingsBody(
     onToggleFill: () -> Unit,
     onOpenSubtitle: () -> Unit,
     onClearSubtitle: () -> Unit,
+    onOpenLyric: () -> Unit,
+    onClearLyric: () -> Unit,
     onToggleInfo: () -> Unit,
     onEnterPip: () -> Unit,
     onStop: () -> Unit,
@@ -160,9 +168,17 @@ private fun SettingsBody(
 
         HorizontalDivider(Modifier.padding(vertical = 16.dp), color = BorderSubtle)
         SheetToggle("畫面填滿", state.videoFill, onToggleFill)
-        SheetRow("開啟字幕…", onOpenSubtitle)
-        if (state.hasSubtitle) {
-            SheetRow("關閉字幕", onClearSubtitle)
+        if (state.isVideoStage) {
+            SheetRow("載入字幕…", onOpenSubtitle)
+            if (state.hasSubtitle) {
+                SheetRow("關閉字幕", onClearSubtitle)
+            }
+        }
+        if (state.current != null) {
+            SheetRow("載入歌詞…", onOpenLyric)
+            if (state.hasLyrics) {
+                SheetRow("關閉歌詞", onClearLyric)
+            }
         }
         SheetRow("影片資訊", onToggleInfo)
         if (state.isVideoStage && state.current != null) {

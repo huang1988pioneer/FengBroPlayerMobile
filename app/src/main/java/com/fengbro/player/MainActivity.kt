@@ -197,9 +197,38 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncoming(intent: Intent?) {
         if (intent == null) return
-        val uri: Uri? = intent.data ?: intent.clipData?.getItemAt(0)?.uri
+        val uris = buildList {
+            intent.data?.let(::add)
+            intent.clipData?.let { clip ->
+                repeat(clip.itemCount) { index -> clip.getItemAt(index).uri?.let(::add) }
+            }
+            addAll(streamUris(intent))
+        }.distinct()
+        val localUris = uris.filter { it.scheme == "content" || it.scheme == "file" }
+        if (localUris.size > 1) {
+            viewModel.importUris(localUris, selectFirst = true)
+            return
+        }
+        val uri: Uri? = uris.firstOrNull()
         val extra = intent.getStringExtra(Intent.EXTRA_TEXT)
         viewModel.handleIncoming(uri, extra)
+    }
+
+    private fun streamUris(intent: Intent): List<Uri> {
+        val multiple = if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+        }
+        if (!multiple.isNullOrEmpty()) return multiple
+        val single = if (Build.VERSION.SDK_INT >= 33) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        return listOfNotNull(single)
     }
 
     private fun requestNotificationPermission() {
