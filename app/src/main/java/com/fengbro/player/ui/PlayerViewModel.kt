@@ -285,6 +285,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun stopMedia() {
         engine.stop()
+        stopPlaybackService()
         _clock.update { PlaybackClock(durationText = _ui.value.current?.duration ?: "00:00") }
         _ui.update {
             it.copy(
@@ -1044,6 +1045,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 context.startService(intent)
             }
         }
+    }
+
+    private fun stopPlaybackService() {
+        val context = getApplication<Application>()
+        runCatching { context.stopService(Intent(context, PlaybackService::class.java)) }
     }
 
     private fun resolveSubtitle(item: MediaItem): String? {

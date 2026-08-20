@@ -184,7 +184,7 @@ private fun SettingsBody(
         if (state.isVideoStage && state.current != null) {
             SheetRow("子母畫面", onEnterPip)
         }
-        SheetRow("停止播放", onStop)
+        SheetRow("停止播放並關閉背景服務", onStop)
 
         HorizontalDivider(Modifier.padding(vertical = 16.dp), color = BorderSubtle)
         Text("開啟", color = TextMuted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
