@@ -11,14 +11,15 @@ import com.fengbro.player.core.model.VideoInfo
 
 object LocalMetadataReader {
     fun displayName(resolver: ContentResolver, uri: Uri): String {
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (index >= 0 && cursor.moveToFirst()) {
-                val name = cursor.getString(index)
-                if (!name.isNullOrBlank()) return name
+        val queriedName = runCatching {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
             }
-        }
-        return uri.lastPathSegment?.substringAfterLast('/') ?: "媒體"
+        }.getOrNull()
+        return queriedName?.takeIf { it.isNotBlank() }
+            ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+            ?: "媒體"
     }
 
     fun readAudio(context: Context, uri: Uri, fallbackName: String): AudioInfo {

@@ -244,7 +244,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _ui.update { it.copy(statusMessage = "示範媒體（無檔案）：${item.title} — 請開啟本機檔案") }
             return
         }
-        startPlaybackService()
         engine.volume = if (_ui.value.isMuted) 0f else _ui.value.volume
         engine.setRate(_ui.value.playbackRate)
         when {
@@ -790,6 +789,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             mediaId = item.id,
             isVideo = item.kind == MediaKind.Video,
         )
+        startPlaybackService()
         _ui.update {
             it.copy(
                 isPlaying = true,
@@ -826,6 +826,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     title = resolved.title,
                     artist = resolved.uploader,
                 )
+                startPlaybackService()
                 _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放：${resolved.title}") }
             }
             return
@@ -837,6 +838,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             mediaId = item.id,
             isVideo = item.kind == MediaKind.Video,
         )
+        startPlaybackService()
         _ui.update { it.copy(isPlaying = true, statusMessage = "正在播放網路媒體：${item.title}") }
     }
 
