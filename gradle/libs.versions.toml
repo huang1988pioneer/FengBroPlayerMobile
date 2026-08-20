@@ -11,7 +11,7 @@ okhttp = "4.12.0"
 serialization = "1.7.3"
 coroutines = "1.9.0"
 junit = "5.11.4"
-newpipe = "v0.24.5"
+newpipe = "v0.26.5"
 appcompat = "1.7.0"
 material = "1.12.0"
 

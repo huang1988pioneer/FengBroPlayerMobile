@@ -103,7 +103,15 @@ object PageStreamExtractor {
                 "HEAD" -> builder.head()
                 else -> builder.get()
             }
-            http.newCall(builder.build()).execute().use { response ->
+            val originalRequest = builder.build()
+            val httpRequest = if (originalRequest.url.host == YOUTUBE_API_HOST) {
+                val webUrl = originalRequest.url.newBuilder().host(YOUTUBE_WEB_HOST).build()
+                originalRequest.newBuilder().url(webUrl).build()
+            } else {
+                originalRequest
+            }
+            val response = http.newCall(httpRequest).execute()
+            response.use {
                 val body = response.body?.string()
                 val headers = linkedMapOf<String, List<String>>()
                 response.headers.toMultimap().forEach { (k, v) -> headers[k] = v }
@@ -117,5 +125,8 @@ object PageStreamExtractor {
             }
         }
     }
+
+    private const val YOUTUBE_API_HOST = "youtubei.googleapis.com"
+    private const val YOUTUBE_WEB_HOST = "www.youtube.com"
 
 }
